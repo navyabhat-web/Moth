@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Moth</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0e1030;--ink:#dfe6ff;--amber:#ffc46b;--fly:#9ff0c8;--bat:#8a4a9c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:Fraunces,Georgia,serif;overflow:hidden}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:none}
+#ui{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(8,9,28,.55)}
+#ui[hidden]{display:none}
+h1{font-size:clamp(48px,12vw,96px);font-weight:700;margin:0 0 8px;letter-spacing:-.02em;color:var(--amber)}
+p{max-width:30ch;margin:0 auto 20px;line-height:1.5;font-size:18px}
+button{font:inherit;font-size:18px;padding:12px 28px;border-radius:999px;border:2px solid var(--amber);background:transparent;color:var(--amber);cursor:pointer}
+button:hover,button:focus-visible{background:var(--amber);color:var(--bg);outline:none}
+#hud{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:16px;font-size:20px;pointer-events:none}
+@media (prefers-color-scheme:light){:root{--bg:#0e1030}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">Fireflies: <span id="s">0</span> &nbsp; Best: <span id="b">0</span></div>
+<div id="ui">
+  <div>
+    <h1 id="t">Moth</h1>
+    <p id="m">Your light fades as you fly. Catch fireflies to keep it burning. Dodge the bats, whose eyes you can see in the dark.</p>
+    <button id="go">Start flying</button>
+  </div>
+</div>
+<script>
+(function(){
+var cv=document.getElementById('c'),cx=cv.getContext('2d'),ui=document.getElementById('ui');
+var W,H,D;
+function size(){D=window.devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*D;cv.height=H*D;cx.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',size);size();
+var best=0;try{best=+localStorage.getItem('moth-best')||0}catch(e){}
+document.getElementById('b').textContent=best;
+var moth,flies,bats,R,score,run=false,t0,last,tx,ty,spawn;
+function rnd(a,b){return a+Math.random()*(b-a)}
+function addFly(){flies.push({x:rnd(40,W-40),y:rnd(60,H-40),p:rnd(0,6.28),vx:rnd(-.3,.3),vy:rnd(-.3,.3)})}
+function addBat(){
+  var s=Math.floor(rnd(0,4)),x,y;
+  if(s==0){x=-30;y=rnd(0,H)}else if(s==1){x=W+30;y=rnd(0,H)}else if(s==2){x=rnd(0,W);y=-30}else{x=rnd(0,W);y=H+30}
+  bats.push({x:x,y:y,sp:rnd(.9,1.3)+score*.03,p:0});
+}
+function start(){
+  moth={x:W/2,y:H/2,a:0};tx=W/2;ty=H/2;
+  flies=[];bats=[];R=210;score=0;spawn=0;
+  for(var i=0;i<4;i++)addFly();
+  addBat();
+  document.getElementById('s').textContent=0;
+  ui.hidden=true;run=true;last=performance.now();t0=last;
+  requestAnimationFrame(loop);
+}
+function end(why){
+  run=false;
+  if(score>best){best=score;try{localStorage.setItem('moth-best',best)}catch(e){}}
+  document.getElementById('b').textContent=best;
+  document.getElementById('t').textContent=why;
+  document.getElementById('m').textContent='You caught '+score+' firefl'+(score==1?'y':'ies')+'. Best is '+best+'.';
+  document.getElementById('go').textContent='Fly again';
+  ui.hidden=false;
+}
+function pt(e){tx=e.clientX;ty=e.clientY}
+cv.addEventListener('pointermove',pt);
+cv.addEventListener('pointerdown',pt);
+document.getElementById('go').addEventListener('click',start);
+function loop(now){
+  if(!run)return;
+  var dt=Math.min(40,now-last)/16.67;last=now;
+  var el=(now-t0)/1000;
+  // moth
+  var dx=tx-moth.x,dy=ty-moth.y;
+  moth.x+=dx*.09*dt;moth.y+=dy*.09*dt;
+  if(Math.abs(dx)+Math.abs(dy)>2)moth.a=Math.atan2(dy,dx);
+  R-=(.16+el*.002)*dt;
+  // spawn bats over time
+  spawn+=dt;
+  if(spawn>420&&bats.length<3+Math.floor(el/25)){spawn=0;addBat()}
+  // fireflies
+  for(var i=flies.length-1;i>=0;i--){
+    var f=flies[i];f.p+=.05*dt;f.x+=f.vx+Math.sin(f.p)*.3;f.y+=f.vy+Math.cos(f.p*.8)*.3;
+    if(f.x<20||f.x>W-20)f.vx*=-1;if(f.y<50||f.y>H-20)f.vy*=-1;
+    if(Math.hypot(f.x-moth.x,f.y-moth.y)<20){
+      flies.splice(i,1);score++;R=Math.min(260,R+42);
+      document.getElementById('s').textContent=score;
+    }
+  }
+  while(flies.length<4)addFly();
+  // bats
+  for(var j=0;j<bats.length;j++){
+    var b=bats[j];b.p+=.2*dt;
+    var a=Math.atan2(moth.y-b.y,moth.x-b.x);
+    b.x+=Math.cos(a)*b.sp*dt+Math.sin(b.p)*.8;
+    b.y+=Math.sin(a)*b.sp*dt+Math.cos(b.p*1.3)*.8;
+    if(Math.hypot(b.x-moth.x,b.y-moth.y)<16){draw(now);return end('Caught')}
+  }
+  if(R<40){draw(now);return end('Light out')}
+  draw(now);
+  requestAnimationFrame(loop);
+}
+function wing(x,y,a,flap,col){
+  cx.save();cx.translate(x,y);cx.rotate(a);
+  var w=7+Math.abs(Math.sin(flap))*9;
+  cx.fillStyle=col;
+  cx.beginPath();cx.ellipse(-2,-6,10,w*.8,-.4,0,6.28);cx.fill();
+  cx.beginPath();cx.ellipse(-2,6,10,w*.8,.4,0,6.28);cx.fill();
+  cx.fillStyle='#4a2f16';cx.beginPath();cx.ellipse(0,0,7,2.5,0,0,6.28);cx.fill();
+  cx.restore();
+}
+function draw(now){
+  cx.fillStyle='#0e1030';cx.fillRect(0,0,W,H);
+  var i;
+  // lit world: bats and fireflies at full colour
+  for(i=0;i<flies.length;i++){
+    var f=flies[i],g=cx.createRadialGradient(f.x,f.y,0,f.x,f.y,16);
+    g.addColorStop(0,'#eafff4');g.addColorStop(.3,'#9ff0c8');g.addColorStop(1,'rgba(159,240,200,0)');
+    cx.fillStyle=g;cx.beginPath();cx.arc(f.x,f.y,16,0,6.28);cx.fill();
+  }
+  for(i=0;i<bats.length;i++){
+    var b=bats[i];cx.save();cx.translate(b.x,b.y);
+    var fl=Math.sin(b.p*2)*10;
+    cx.fillStyle='#8a4a9c';
+    cx.beginPath();cx.moveTo(0,0);cx.quadraticCurveTo(-18,-14-fl,-26,0);cx.quadraticCurveTo(-14,-2,0,8);
+    cx.quadraticCurveTo(14,-2,26,0);cx.quadraticCurveTo(18,-14-fl,0,0);cx.fill();
+    cx.beginPath();cx.arc(0,2,7,0,6.28);cx.fill();cx.restore();
+  }
+  // darkness with a hole of light around the moth
+  var d=cx.createRadialGradient(moth.x,moth.y,R*.15,moth.x,moth.y,R);
+  d.addColorStop(0,'rgba(8,9,28,0)');d.addColorStop(.6,'rgba(8,9,28,.55)');d.addColorStop(1,'rgba(8,9,28,.985)');
+  cx.fillStyle=d;cx.fillRect(0,0,W,H);
+  // things you can sense in the dark: dim fireflies, bat eyes
+  for(i=0;i<flies.length;i++){
+    var q=flies[i];cx.fillStyle='rgba(159,240,200,'+(.35+.25*Math.sin(q.p*3))+')';
+    cx.beginPath();cx.arc(q.x,q.y,2.2,0,6.28);cx.fill();
+  }
+  for(i=0;i<bats.length;i++){
+    var e=bats[i];cx.fillStyle='#ff6b8a';
+    cx.beginPath();cx.arc(e.x-4,e.y+1,1.8,0,6.28);cx.arc(e.x+4,e.y+1,1.8,0,6.28);cx.fill();
+  }
+  // moth glows and flaps
+  var m=cx.createRadialGradient(moth.x,moth.y,0,moth.x,moth.y,26);
+  m.addColorStop(0,'rgba(255,196,107,.55)');m.addColorStop(1,'rgba(255,196,107,0)');
+  cx.fillStyle=m;cx.beginPath();cx.arc(moth.x,moth.y,26,0,6.28);cx.fill();
+  wing(moth.x,moth.y,moth.a+1.57,now/60,'#ffc46b');
+}
+// idle backdrop behind the title card
+moth={x:W/2,y:H/2,a:0};flies=[];bats=[];R=230;
+for(var k=0;k<4;k++)addFly();
+draw(0);
+})();
+</script>
+</body>
+</html>
